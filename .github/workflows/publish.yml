@@ -1,0 +1,24 @@
+name: publish
+
+on: [push]
+
+env:
+  DOCKER_IMAGE_NAME: idrac-pid-fan-control
+  DOCKER_REGISTRY: ghcr.io
+
+jobs:
+    publish-idrac-pid-fan-control:
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v2
+            - name: Login to GitHub Container Registry
+              uses: docker/login-action@v1
+              with: 
+                registry: ${{ env.DOCKER_REGISTRY }}
+                username: ${{ github.actor }}
+                password: ${{ secrets.GITHUB_TOKEN }}
+
+            - name: Build the hello-docker Docker image
+              run: |
+                docker build . --tag ${{ env.DOCKER_REGISTRY }}/kovasky/${{ env.DOCKER_IMAGE_NAME }}:latest
+                docker push ${{ env.DOCKER_REGISTRY }}/kovasky/${{ env.DOCKER_IMAGE_NAME }}:latest
