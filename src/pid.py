@@ -49,7 +49,7 @@ class PID:
         self.integral_error += error * dt
         derivative_error = (error - self.previous_error) / dt if dt > 0 else 0
         pid_output = (self.k_proportional * error) + (self.k_integral * self.integral_error) + (self.k_derivative * derivative_error)
-        output_fan_speed = curr_fan_speed + pid_output
+        output_fan_speed = round(curr_fan_speed + pid_output)
         self.previous_error = error
         
         if (output_fan_speed < self.min_fan_speed):
