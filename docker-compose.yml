@@ -1,0 +1,16 @@
+services:
+  idrac-pid-fan-control:
+    image: ghcr.io/kovasky/idrac-pid-fan-control:latest
+    container_name: idrac-pid-fan-control
+    volumes:
+      - ./config:/config # local file system
+      #- config:/config # using volumes
+    restart: unless-stopped
+    env_file:
+      - .env
+      #- stack.env # portainer's default env file
+
+# To be used when using volume-based config
+#volumes:
+#  config:
+#    driver: local
