@@ -2,10 +2,99 @@ import os
 import logging
 import sys
 import csv
+from dataclasses import dataclass
 
 LOG_LEVEL = os.environ.get("LOG_LEVEL", "INFO").upper()
 logging.basicConfig(level=LOG_LEVEL)
 logger = logging.getLogger(__name__)
+
+@dataclass
+class EnvConfig:
+    host_addr: str
+    username: str
+    password: str
+    desired_temp: int
+    max_temp: int
+    min_fan_speed_percent: int
+    max_fan_speed_percent: int
+    kp: float
+    ki: float
+    kd: float
+    fan_speeds: str
+    rpms: str
+    scan: bool
+    disable_third_party_fan_mode: bool
+    config_path: str
+    step_delay: int
+    hysteresis: int
+
+def load_env_config() -> EnvConfig:
+    """
+    Loads and validates environment variables, returns an AppConfig dataclass instance.
+    """
+ 
+    HOST_ADDR = required_env("HOST_ADDR")
+    USER = required_env("USER")
+    PASS = required_env("PASS")
+    DESIRED_TEMP = required_env("DESIRED_TEMP")
+    MAX_TEMP = required_env("MAX_TEMP")
+    MIN_FAN_SPEED_PERCENT = required_env("MIN_FAN_SPEED_PERCENT")
+    MAX_FAN_SPEED_PERCENT = required_env("MAX_FAN_SPEED_PERCENT")
+    KP = required_env("KP")
+    KI = required_env("KI")
+    KD = required_env("KD")
+
+    # Optional environment variables
+    FAN_SPEEDS_ENV = os.environ.get("FAN_SPEEDS", "20,30,40,50,60") # These are my pre-recorded values
+    RPMS_ENV = os.environ.get("FAN_RPMS", "1560,2040,2640,2880,3360")
+    SCAN = parse_bool(os.environ.get("SCAN", "False"), default=False)
+    DISABLE_THIRD_PARTY_FAN_MODE = parse_bool(os.environ.get("DISABLE_THIRD_PARTY_FAN_MODE", "False"), default=True)
+    CONFIG = os.environ.get("CONFIG", "/config/config.csv")
+    STEP_DELAY = os.environ.get("STEP_DELAY", 2)
+    HYSTERESIS = os.environ.get("HYSTERESIS", 5)
+    
+    try:
+        username = USER
+        password = PASS
+        desired_temp = int(DESIRED_TEMP)
+        max_temp = int(MAX_TEMP)
+        min_fan_speed_pct = int(MIN_FAN_SPEED_PERCENT)
+        max_fan_speed_pct = int(MAX_FAN_SPEED_PERCENT)
+        kp = float(KP)
+        ki = float(KI)
+        kd = float(KD)
+        delay = int(STEP_DELAY)
+        hysteresis = int(HYSTERESIS)
+
+        default_fan_speeds = list(map(int, FAN_SPEEDS_ENV.split(",")))
+        default_rpms = list(map(int, RPMS_ENV.split(",")))
+    except ValueError as exc:
+        logger.error(f"Error converting environment variables to numeric values: {exc}")
+        sys.exit(1)
+
+    if len(default_fan_speeds) != len(default_rpms):
+        logger.error("FAN_SPEEDS and FAN_RPMS must be the same length.")
+        sys.exit(1)
+ 
+    return EnvConfig(
+        host_addr=HOST_ADDR,
+        username=username,
+        password=password,
+        desired_temp=desired_temp,
+        max_temp=max_temp,
+        min_fan_speed_percent=min_fan_speed_pct,
+        max_fan_speed_percent=max_fan_speed_pct,
+        kp=kp,
+        ki=ki,
+        kd=kd,
+        fan_speeds=default_fan_speeds,
+        rpms=default_rpms,
+        scan=SCAN,
+        disable_third_party_fan_mode=DISABLE_THIRD_PARTY_FAN_MODE,
+        config_path=CONFIG,
+        step_delay=delay,
+        hysteresis=hysteresis,
+    )
 
 def parse_bool(env_val: str, default: bool = False) -> bool:
     """
@@ -37,7 +126,7 @@ def get_slopes_and_intercepts(fan_speeds : list[int], rpms: list[int]) -> tuple[
     Returns ([],[]) if not succesful.
     Returns the calculated (slopes, intercepts) if successful.
     """
-    if not fan_speeds or not rpms or len(fan_speeds) is not len(rpms):
+    if not fan_speeds or not rpms or len(fan_speeds) != len(rpms):
         return [],[]
 
     slopes=[]
@@ -93,13 +182,9 @@ def read_config_csv(config_path: str) -> tuple[list[int], list[int]]:
         logger.error(f"Error reading {config_path}: {e}")
         return [], []
 
-    if len(data) < 2:
+    if len(data) < 2 or len(data[0]) != len(data[1]):
         logger.error(f"Malformed config file: need at least 2 lines in {config_path}.")
         return [], []
-    
-    if len(data[0]) is not len(data[1]):
-        logger.error(f"Malformed config file: need at least 2 lines in {config_path}.")
-        return [],[]
 
     return data[0], data[1]
 
