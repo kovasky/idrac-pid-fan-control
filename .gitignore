@@ -1,2 +1,4 @@
 .DS_Store
 *.env
+*pycache*
+launch.json
