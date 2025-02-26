@@ -17,6 +17,7 @@ Use this tool at your own risk. Overridden fan speeds may lead to overheating if
 - **PID-based control**: for smooth and continuous fan speed adjustments.  
 - **Optional scanning mode**: to map fan speed percentages to actual RPM values. The script cycles through a set of fan speeds and measures the corresponding RPM values to estimate a fan curve.
 - **iDrac 9 compatible**: can disable “third-party PCIe” fan response mode so that fans do not go to full throttle when control returns to Dell’s profile. 
+- **No third-party libraries**: all operations are performed using only the built-in libraries of Python.
 
 ---
 
@@ -72,14 +73,19 @@ These configure the PID controller, temperature targets, and scanning behavior.
 ### Optional
 
 | Variable                       | Default                    | Description                                                                                            |
-| ------------------------------ | -------------------------- | ------------------------------------------------------------------------------------------------------ |
-| `FAN_SPEEDS`                   | `20,30,40,50,60`           | Comma-separated list of fan speed percentages (used for scanning or default usage)                     |
+| ------------------------------ | -------------------------- | ---------------------- |
+| `FAN_SPEEDS`             | `20,30,40,50,60`           | Comma-separated list of fan speed percentages (used for scanning or default usage)                     |
 | `FAN_RPMS`                     | `1560,2040,2640,2880,3360` | Comma-separated list of default RPM values correlating to `FAN_SPEEDS`                                 |
-| `SCAN`                         | `False`                    | If `True`, script will scan fan speeds in increments of 10, measuring RPM to build/update a config CSV |
-| `DISABLE_THIRD_PARTY_FAN_MODE` | `False`                    | If `True`, attempts to disable Dell’s “third-party PCIe fan cooling” response                          |
-| `CONFIG`                       | `/config/config.csv`       | CSV path for storing or reading fan speed → RPM mapping data                                           |
-| `STEP_DELAY`                   | `2`                        | Time delay (seconds) between each PID calculation step.                                                |
-| `LOG_LEVEL`                    | `INFO`                     | Logging verbosity; set to `DEBUG` for more detailed output.                                            |
+| `SCAN`                         | `False`                    | If `True`, script will scan fan speeds in increments of 10, measuring RPM to build\/update a config CSV |
+| `DISABLE_THIRD_PARTY_FAN_MODE` | `False`                    | If `True`, attempts to disable Dell’s “third-party PCIe fan cooling” response |
+| `CONFIG`                       | `/config/config.csv`       | CSV path for storing or reading fan speed → RPM mapping data                  |
+| `STEP_DELAY`                   | `2`                        | Time delay (seconds) between each PID calculation step.                       |
+| `LOG_LEVEL`                    | `INFO`                     | Logging verbosity; set to `DEBUG` for more detailed output                    |
+| `HYSTERESIS`                   | `5`                        | Additional temperature margin in °C to reduce frequent fan speed changes      |
+| `NTFY_TOKEN`                   | (none)                     | Ntfy push notifications token (if using push notifications)                   |
+| `NTFY_HOST`                    | (none)                     | Ntfy.sh server hostname                                                       |
+| `NTFY_TOPIC`                   | (none)                     | The target topic                                                              |
+| `NTFY_TEST`                    | `False`                    | If `True`, sends a test notification                                          |
 
 ---
 

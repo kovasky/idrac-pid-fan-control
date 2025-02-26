@@ -10,6 +10,9 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class EnvConfig:
+    """
+    Configuration for environment-based settings.
+    """
     host_addr: str
     username: str
     password: str
@@ -27,10 +30,14 @@ class EnvConfig:
     config_path: str
     step_delay: int
     hysteresis: int
+    ntfy_token: str
+    ntfy_host: str
+    ntfy_topic: str
+    ntfy_test: bool
 
 def load_env_config() -> EnvConfig:
     """
-    Loads and validates environment variables, returns an AppConfig dataclass instance.
+    Loads and validates environment variables, returns an EnvConfig dataclass instance.
     """
  
     HOST_ADDR = required_env("HOST_ADDR")
@@ -47,12 +54,16 @@ def load_env_config() -> EnvConfig:
     # Optional environment variables
     FAN_SPEEDS_ENV = os.environ.get("FAN_SPEEDS", "20,30,40,50,60") # These are my pre-recorded values
     RPMS_ENV = os.environ.get("FAN_RPMS", "1560,2040,2640,2880,3360")
-    SCAN = parse_bool(os.environ.get("SCAN", "False"), default=False)
-    DISABLE_THIRD_PARTY_FAN_MODE = parse_bool(os.environ.get("DISABLE_THIRD_PARTY_FAN_MODE", "False"), default=True)
+    SCAN = parse_bool(os.environ.get("SCAN"), default=False)
+    DISABLE_THIRD_PARTY_FAN_MODE = parse_bool(os.environ.get("DISABLE_THIRD_PARTY_FAN_MODE"), default=True)
     CONFIG = os.environ.get("CONFIG", "/config/config.csv")
     STEP_DELAY = os.environ.get("STEP_DELAY", 2)
     HYSTERESIS = os.environ.get("HYSTERESIS", 5)
-    
+    NTFY_TOKEN = os.environ.get("NTFY_TOKEN")
+    NTFY_HOST = os.environ.get("NTFY_HOST")
+    NTFY_TOPIC = os.environ.get("NTFY_TOPIC")
+    NTFY_TEST = parse_bool(os.environ.get("NTFY_TEST"),default=False)
+
     try:
         username = USER
         password = PASS
@@ -65,6 +76,10 @@ def load_env_config() -> EnvConfig:
         kd = float(KD)
         delay = int(STEP_DELAY)
         hysteresis = int(HYSTERESIS)
+        ntfy_token = NTFY_TOKEN
+        ntfy_host = NTFY_HOST
+        ntfy_topic = NTFY_TOPIC
+        ntfy_test = NTFY_TEST
 
         default_fan_speeds = list(map(int, FAN_SPEEDS_ENV.split(",")))
         default_rpms = list(map(int, RPMS_ENV.split(",")))
@@ -94,6 +109,10 @@ def load_env_config() -> EnvConfig:
         config_path=CONFIG,
         step_delay=delay,
         hysteresis=hysteresis,
+        ntfy_token=ntfy_token,
+        ntfy_host=ntfy_host,
+        ntfy_topic=ntfy_topic,
+        ntfy_test=ntfy_test
     )
 
 def parse_bool(env_val: str, default: bool = False) -> bool:
@@ -121,10 +140,9 @@ def required_env(var_name: str) -> str:
 
 def get_slopes_and_intercepts(fan_speeds : list[int], rpms: list[int]) -> tuple[list[float],list[float]]:
     """
-    Calculates slopes and intercepts for percentage calculation.
-
-    Returns ([],[]) if not succesful.
-    Returns the calculated (slopes, intercepts) if successful.
+    Calculates slopes and intercepts for line segments used in RPM↔% interpolation.
+    Each adjacent pair of points is used to build a linear relationship.
+    Returns (slopes, intercepts) or ([], []) on failure.
     """
     if not fan_speeds or not rpms or len(fan_speeds) != len(rpms):
         return [],[]
@@ -145,10 +163,8 @@ def get_slopes_and_intercepts(fan_speeds : list[int], rpms: list[int]) -> tuple[
 
 def get_fan_speed_percent(rpm: int, fan_speeds: list[int], rpms: list[int], slopes: list[float], intercepts: list[float]) -> float:
     """
-    Translates RPM to fan percentage based on interpolation.
-
-    Returns -1 if conversion is not succesful.
-    Returns the fan speed in percent if successful.
+    Translates RPM to a fan percentage based on linear interpolation between known RPM,percentage pairs.
+    Returns the fan speed percentage, or -1 if something goes wrong.
     """
     if rpm < rpms[0]:
         return fan_speeds[0]
@@ -168,11 +184,9 @@ def get_fan_speed_percent(rpm: int, fan_speeds: list[int], rpms: list[int], slop
 def read_config_csv(config_path: str) -> tuple[list[int], list[int]]:
     """
     Reads fan speeds and RPMs from a 2-line CSV file:
-    1st line: fan speeds (comma-delimited)
-    2nd line: rpms (comma-delimited)
-
-    Returns ([], []) if reading fails.
-    Returns (fan_speeds,rpms) if reading successful.
+      - 1st line: fan speeds (comma-delimited)
+      - 2nd line: rpms (comma-delimited)
+    Returns (fan_speeds, rpms) or ([], []) on failure.
     """
     try:
         with open(config_path) as file:
