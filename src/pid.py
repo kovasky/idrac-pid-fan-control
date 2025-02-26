@@ -6,7 +6,10 @@ LOG_LEVEL = os.environ.get("LOG_LEVEL", "INFO").upper()
 logging.basicConfig(level=LOG_LEVEL)
 logger = logging.getLogger(__name__)
 
-class PID: 
+class PID:
+    """
+    A simple PID controller for adjusting the fan speed based on temperature.
+    """
     def __init__(self, desired_temp: int, k_proportional : float, k_integral : float, k_derivative : float, 
                  fan_speeds : list[int], rpms: list [int], slopes: list[float], intercepts: list[float]):
         self.fan_speeds = fan_speeds
@@ -25,7 +28,7 @@ class PID:
     
     def step(self, current_time : float, current_temp: int, current_fan_speed_rpm: int) -> int:
         """
-        This performs a PID step and outputs the new fan speed in percentage
+        Performs a PID iteration. Returns the new fan speed in percentage
         """
 
         dt = current_time - self.last_run_time if self.last_run_time != 0 else 0
