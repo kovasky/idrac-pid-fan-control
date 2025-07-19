@@ -3,6 +3,7 @@ import re
 import time
 import logging
 import os
+from typing import Optional, Tuple
 
 LOG_LEVEL = os.environ.get("LOG_LEVEL", "INFO").upper()
 logging.basicConfig(level=LOG_LEVEL)
@@ -32,84 +33,126 @@ class RemoteManagement:
             "sshpass", "-p", password,
             "ssh",
             "-o", "StrictHostKeyChecking=no",
+            "-o", "ConnectTimeout=10",
             f"{username}@{host}",
             "racadm"
         ]
         self.command_get_pcie_slotlfm = base_command_racadm + ["get", "system.pcieslotlfm"]
-        # Will replace "placeholder" on-the-fly when disabling third-party fan mode
         self.command_set_pcie_slotlfm = base_command_racadm + ["set", "placeholder", "disabled"]
 
+    def _run_command_with_retry(self, command: list, max_retries: int = 3, delay: float = 1.0) -> Optional[subprocess.CompletedProcess]:
+        """
+        Run a command with retry logic to handle transient failures.
+        """
+        for attempt in range(max_retries):
+            try:
+                result = subprocess.run(command, capture_output=True, text=True, timeout=30)
+                if result.returncode == 0:
+                    return result
+                logger.warning(f"Command failed (attempt {attempt + 1}/{max_retries}): {' '.join(command)}")
+                logger.warning(f"Error: {result.stderr}")
+            except subprocess.TimeoutExpired:
+                logger.warning(f"Command timed out (attempt {attempt + 1}/{max_retries}): {' '.join(command)}")
+            except Exception as e:
+                logger.warning(f"Command exception (attempt {attempt + 1}/{max_retries}): {e}")
+            
+            if attempt < max_retries - 1:
+                time.sleep(delay)
+        
+        return None
+
     def enable_manual_fan_control(self) -> int:
-        result = subprocess.run(self.command_set_manual_fan_control, capture_output=True, text=True)
-        if result.returncode != 0:
-            logger.error("Failed to set manual fan control:", result.stderr)
-        return result.returncode
+        result = self._run_command_with_retry(self.command_set_manual_fan_control)
+        if result is None or result.returncode != 0:
+            error_msg = result.stderr if result else "Command failed after retries"
+            logger.error(f"Failed to set manual fan control: {error_msg}")
+            return 1
+        return 0
                 
     def enable_dell_fan_control(self) -> int:
-        result = subprocess.run(self.command_set_dell_fan_control, capture_output=True, text=True)
-        if result.returncode != 0:
-            logger.error("Failed to set dell fan control:", result.stderr)
-        return result.returncode
+        result = self._run_command_with_retry(self.command_set_dell_fan_control)
+        if result is None or result.returncode != 0:
+            error_msg = result.stderr if result else "Command failed after retries"
+            logger.error(f"Failed to set dell fan control: {error_msg}")
+            return 1
+        return 0
         
-    def get_highest_cpu_temperature(self) -> int:
+    def get_highest_cpu_temperature(self) -> Optional[int]:
         """
         Reads temperature sensors via ipmitool, returns the highest CPU temperature found.
+        Returns None if unable to get temperature.
         """
-        result = subprocess.run(self.command_sdr_temperature, capture_output=True, text=True)
-        if result.returncode != 0:
-            logger.error("Failed to run ipmitool:", result.stderr)
-            return result.returncode
-
-        temp_lines = [line for line in result.stdout.splitlines() if line.startswith("Temp")]
-        temps_int = [int(line.split()[-3]) for line in temp_lines]
-        try:
-            temp_int = max(temps_int)
-            return temp_int if temp_int else None
-        except ValueError:
-            logger.error("Could not parse temperature from lines:", temp_lines)
+        result = self._run_command_with_retry(self.command_sdr_temperature)
+        if result is None or result.returncode != 0:
+            error_msg = result.stderr if result else "Command failed after retries"
+            logger.error(f"Failed to run ipmitool for temperature: {error_msg}")
             return None
 
-    def get_current_fan_speed_rpm(self) -> int:
+        try:
+            temp_lines = [line for line in result.stdout.splitlines() if line.startswith("Temp")]
+            if not temp_lines:
+                logger.error("No temperature lines found in ipmitool output")
+                return None
+                
+            temps_int = [int(line.split()[-3]) for line in temp_lines]
+            if not temps_int:
+                logger.error("No valid temperatures parsed from lines")
+                return None
+                
+            temp_int = max(temps_int)
+            return temp_int
+        except (ValueError, IndexError) as e:
+            logger.error(f"Could not parse temperature from lines: {e}")
+            return None
+
+    def get_current_fan_speed_rpm(self) -> Optional[int]:
         """
         Retrieves the fan speed in RPM via ipmitool.
+        Returns None if unable to get fan speed.
         """
-        result = subprocess.run(self.command_sdr_fan1, capture_output=True, text=True)
-        if result.returncode != 0:
-            logger.error("Failed to run ipmitool:", result.stderr)
+        result = self._run_command_with_retry(self.command_sdr_fan1)
+        if result is None or result.returncode != 0:
+            error_msg = result.stderr if result else "Command failed after retries"
+            logger.error(f"Failed to run ipmitool for fan speed: {error_msg}")
             return None
 
-        lines = result.stdout.splitlines()
-        sensor_line = next((ln for ln in lines if "Sensor Reading" in ln), None)
-        if not sensor_line:
-            logger.error("No sensor reading found in ipmitool output.")
-            return None
-
-        parts = re.split(r'[(:]', sensor_line)
-        if len(parts) < 2:
-            logger.error("Unexpected sensor line format:", sensor_line)
-            return None
-
-        speed_str = parts[1].strip()
         try:
+            lines = result.stdout.splitlines()
+            sensor_line = next((ln for ln in lines if "Sensor Reading" in ln), None)
+            if not sensor_line:
+                logger.error("No sensor reading found in ipmitool output")
+                return None
+
+            parts = re.split(r'[(:]', sensor_line)
+            if len(parts) < 2:
+                logger.error(f"Unexpected sensor line format: {sensor_line}")
+                return None
+
+            speed_str = parts[1].strip()
             return int(speed_str)
-        except ValueError:
-            logger.error("Could not parse fan speed integer from line:", sensor_line)
+        except (ValueError, IndexError) as e:
+            logger.error(f"Could not parse fan speed from line: {e}")
             return None
 
     def set_fan_speed_percent(self, speed: int) -> int:
         """
         Sets fan speed to a given percentage using ipmitool raw command.
         speed is integer 0-100.
-        Returns the command's return code, or None if it fails.
+        Returns 0 on success, 1 on failure.
         """
+        if not 0 <= speed <= 100:
+            logger.error(f"Invalid fan speed percentage: {speed}")
+            return 1
 
         command = self.command_set_fan_speed + [hex(speed)]
-        result = subprocess.run(command, capture_output=True, text=True)
-        if result.returncode != 0:
-            logger.error("Failed to run ipmitool:", result.stderr)
-        return result.returncode
+        result = self._run_command_with_retry(command)
+        if result is None or result.returncode != 0:
+            error_msg = result.stderr if result else "Command failed after retries"
+            logger.error(f"Failed to set fan speed: {error_msg}")
+            return 1
+        return 0
 
-    def scan(self, min_fan_speed: int, max_fan_speed: int) -> tuple[list[int], list[int]]:
+    def scan(self, min_fan_speed: int, max_fan_speed: int) -> Tuple[list[int], list[int]]:
         """
         Steps fan speed from min_fan_speed to max_fan_speed in increments of 10,
         waits 10 seconds each step, and records the RPM.
@@ -119,38 +162,37 @@ class RemoteManagement:
         logger.info("Begin scanning")
         speeds = list(range(min_fan_speed, max_fan_speed+10, 10))
         rpms = []
+        
         for s in speeds:
-            command = self.command_set_fan_speed + [hex(s)]
-            result = subprocess.run(command, capture_output=True, text=True)
-            if result.returncode != 0:
-                logger.error("Failed to run ipmitool:", result.stderr)
-                return [],[]
+            if self.set_fan_speed_percent(s) != 0:
+                logger.error(f"Failed to set fan speed during scan at {s}%")
+                return [], []
+                
             time.sleep(10)  # Let fans stabilize
             rpm_val = self.get_current_fan_speed_rpm()
-            if not rpm_val: 
+            if rpm_val is None:
                 logger.error(f'Error scanning, could not get fan rpm for percentage {s}')
-                return [],[]
+                return [], []
+                
             logger.info(f'RPM is {rpm_val} for percentage {s}')
-            rpms.append(rpm_val if rpm_val else 0)
+            rpms.append(rpm_val)
 
-        if speeds:
-            reset_command = self.command_set_fan_speed + [hex(speeds[0])]
-            result = subprocess.run(reset_command, capture_output=True, text=True)
-            if result.returncode != 0:
-                logger.error("Failed to run ipmitool during reset:", result.stderr)
-                return [],[]
+        # Reset to initial speed
+        if speeds and self.set_fan_speed_percent(speeds[0]) != 0:
+            logger.error("Failed to reset fan speed after scan")
+            return [], []
 
         return speeds, rpms
 
     def disable_third_party_fan_mode(self) -> int:
         """
-        Disables the 'third-party PCIe card cooling response' on certain Dell systems
-        by iterating over PCIe slots and setting the LFM mode to 'disabled' via RACADM.
+        Disables the 'third-party PCIe card cooling response' on certain Dell systems.
         """
-        result = subprocess.run(self.command_get_pcie_slotlfm, capture_output=True, text=True)
-        if result.returncode != 0:
-            logger.error("Failed to run racadm to get PCIe slot LFM:", result.stderr)
-            return result.returncode
+        result = self._run_command_with_retry(self.command_get_pcie_slotlfm)
+        if result is None or result.returncode != 0:
+            error_msg = result.stderr if result else "Command failed after retries"
+            logger.error(f"Failed to run racadm to get PCIe slot LFM: {error_msg}")
+            return 1
 
         pcie_lines = [line for line in result.stdout.splitlines() if "System.pcieslotlfm." in line]
         pcie_ports_count = len(pcie_lines)
@@ -163,10 +205,11 @@ class RemoteManagement:
                 else:
                     temp_cmd.append(part)
 
-            result = subprocess.run(temp_cmd, capture_output=True, text=True)
-            if result.returncode != 0:
-                logger.error(f"Failed to disable third-party fan mode on slot {i}:", result.stderr)
+            result = self._run_command_with_retry(temp_cmd)
+            if result is None or result.returncode != 0:
+                error_msg = result.stderr if result else "Command failed after retries"
+                logger.error(f"Failed to disable third-party fan mode on slot {i}: {error_msg}")
             else:
                 logger.info(f"Slot {i} third-party fan mode is now disabled.")
             
-        return result.returncode
+        return 0

@@ -3,6 +3,7 @@ import logging
 import sys
 import csv
 from dataclasses import dataclass
+from typing import Optional
 
 LOG_LEVEL = os.environ.get("LOG_LEVEL", "INFO").upper()
 logging.basicConfig(level=LOG_LEVEL)
@@ -161,11 +162,15 @@ def get_slopes_and_intercepts(fan_speeds : list[int], rpms: list[int]) -> tuple[
     
     return (slopes,intercepts)
 
-def get_fan_speed_percent(rpm: int, fan_speeds: list[int], rpms: list[int], slopes: list[float], intercepts: list[float]) -> float:
+def get_fan_speed_percent(rpm: Optional[int], fan_speeds: list[int], rpms: list[int], slopes: list[float], intercepts: list[float]) -> float:
     """
     Translates RPM to a fan percentage based on linear interpolation between known RPM,percentage pairs.
     Returns the fan speed percentage, or -1 if something goes wrong.
     """
+    if rpm is None or not rpms or not fan_speeds:
+        logger.error("Invalid input parameters to get_fan_speed_percent")
+        return -1
+        
     if rpm < rpms[0]:
         return fan_speeds[0]
     
@@ -175,7 +180,7 @@ def get_fan_speed_percent(rpm: int, fan_speeds: list[int], rpms: list[int], slop
     if rpm in rpms:
         return fan_speeds[rpms.index(rpm)]
 
-    for i in range(1,len(rpms)):
+    for i in range(1, len(rpms)):
         if rpm < rpms[i]:
             return slopes[i-1] * rpm + intercepts[i-1]
 
